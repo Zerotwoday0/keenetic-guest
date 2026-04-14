@@ -82,13 +82,14 @@ suspend fun getStatus(): Boolean? = withContext(Dispatchers.IO) {
         auth()
         val r = client.newCall(
             Request.Builder()
-                .url("$BASE/rci/show/interface/$I0")
+                .url("$BASE/rci/show/interface")
                 .get().build()
         ).execute()
         val body = r.body?.string() ?: return@withContext null
         r.close()
         val j = JSONObject(body)
-        j.optString("state") == "up" || j.optBoolean("up")
+        val iface = j.optJSONObject(I0) ?: return@withContext false
+        iface.optString("state") == "up" || iface.optBoolean("up")
     } catch (e: Exception) { null }
 }
 
@@ -98,7 +99,9 @@ suspend fun setEnabled(on: Boolean) = withContext(Dispatchers.IO) {
         val body = """{"interface":{"$I0":{"up":$on},"$I1":{"up":$on}}}"""
             .toRequestBody(JSON_MT)
         val r = client.newCall(
-            Request.Builder().url("$BASE/rci/").post(body).build()
+            Request.Builder()
+                .url("$BASE/rci/")
+                .post(body).build()
         ).execute()
         r.close()
     } catch (e: Exception) { throw e }
@@ -138,10 +141,10 @@ fun GuestScreen() {
             Text("Keenetic Extra KN-1714", fontSize = 13.sp, color = Color.White.copy(0.4f))
 
             val (stText, stColor) = when {
-                loading      -> "Загрузка…"   to Color(0xFFFFD600)
+                loading        -> "Загрузка…"   to Color(0xFFFFD600)
                 state == true  -> "● ВКЛЮЧЕНА"  to Color(0xFF00E676)
                 state == false -> "● ВЫКЛЮЧЕНА" to Color(0xFFFF5252)
-                else         -> "● НЕИЗВЕСТНО" to Color(0xFF90A4AE)
+                else           -> "● НЕИЗВЕСТНО" to Color(0xFF90A4AE)
             }
             Box(
                 Modifier.clip(RoundedCornerShape(50))
