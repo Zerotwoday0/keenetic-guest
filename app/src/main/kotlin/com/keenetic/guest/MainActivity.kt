@@ -56,31 +56,52 @@ fun md5(s: String): String {
     return b.joinToString("") { "%02x".format(it) }
 }
 
+fun sha256(s: String): String {
+    val b = MessageDigest.getInstance("SHA-256").digest(s.toByteArray())
+    return b.joinToString("") { "%02x".format(it) }
+}
+
 suspend fun auth() = withContext(Dispatchers.IO) {
-    val r1 = client.newCall(Request.Builder().url("$BASE/auth").get().build()).execute()
+    val r1 = client.newCall(
+        Request.Builder().url("$BASE/auth").get().build()
+    ).execute()
     if (r1.code == 200) { r1.close(); return@withContext }
-    val realm = r1.headers["X-NDM-Realm"] ?: return@withContext
-    val challenge = r1.headers["X-NDM-Challenge"] ?: return@withContext
+    val realm = r1.headers["X-NDM-Realm"] ?: run { r1.close(); return@withContext }
+    val challenge = r1.headers["X-NDM-Challenge"] ?: run { r1.close(); return@withContext }
     r1.close()
-    val hash = md5(challenge + md5("$USER:$realm:$PASS"))
+    val hash = sha256(challenge + md5("$USER:$realm:$PASS"))
     val body = """{"login":"$USER","password":"$hash"}""".toRequestBody(JSON_MT)
-    val r2 = client.newCall(Request.Builder().url("$BASE/auth").post(body).build()).execute()
+    val r2 = client.newCall(
+        Request.Builder().url("$BASE/auth").post(body).build()
+    ).execute()
     r2.close()
 }
 
 suspend fun getStatus(): Boolean? = withContext(Dispatchers.IO) {
     try {
-        val r = client.newCall(Request.Builder().url("$BASE/rci/show/interface/$I0").get().build()).execute()
-        val j = JSONObject(r.body?.string() ?: return@withContext null)
+        auth()
+        val r = client.newCall(
+            Request.Builder()
+                .url("$BASE/rci/show/interface/$I0")
+                .get().build()
+        ).execute()
+        val body = r.body?.string() ?: return@withContext null
         r.close()
+        val j = JSONObject(body)
         j.optString("state") == "up" || j.optBoolean("up")
     } catch (e: Exception) { null }
 }
 
 suspend fun setEnabled(on: Boolean) = withContext(Dispatchers.IO) {
-    val body = """{"interface":{"$I0":{"up":$on},"$I1":{"up":$on}}}""".toRequestBody(JSON_MT)
-    val r = client.newCall(Request.Builder().url("$BASE/rci/").post(body).build()).execute()
-    r.close()
+    try {
+        auth()
+        val body = """{"interface":{"$I0":{"up":$on},"$I1":{"up":$on}}}"""
+            .toRequestBody(JSON_MT)
+        val r = client.newCall(
+            Request.Builder().url("$BASE/rci/").post(body).build()
+        ).execute()
+        r.close()
+    } catch (e: Exception) { throw e }
 }
 
 @Composable
@@ -91,33 +112,45 @@ fun GuestScreen() {
     val scope = rememberCoroutineScope()
 
     val bg by animateColorAsState(
-        when (state) { true -> Color(0xFF0d2b1d); false -> Color(0xFF1a0d0d); else -> Color(0xFF0d1117) },
+        when (state) {
+            true  -> Color(0xFF0d2b1d)
+            false -> Color(0xFF1a0d0d)
+            else  -> Color(0xFF0d1117)
+        },
         animationSpec = tween(600), label = ""
     )
 
     LaunchedEffect(Unit) {
-        try { auth(); state = getStatus() } catch (e: Exception) { error = e.message ?: "Ошибка" }
+        try { state = getStatus() } catch (e: Exception) { error = e.message ?: "Ошибка" }
         loading = false
     }
 
-    Box(Modifier.fillMaxSize().background(bg), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp), modifier = Modifier.padding(32.dp)) {
-
+    Box(
+        Modifier.fillMaxSize().background(bg),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            modifier = Modifier.padding(32.dp)
+        ) {
             Text("Гостевая сеть", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
             Text("Keenetic Extra KN-1714", fontSize = 13.sp, color = Color.White.copy(0.4f))
 
-            // Статус
             val (stText, stColor) = when {
-                loading -> "Загрузка…" to Color(0xFFFFD600)
-                state == true -> "● ВКЛЮЧЕНА" to Color(0xFF00E676)
+                loading      -> "Загрузка…"   to Color(0xFFFFD600)
+                state == true  -> "● ВКЛЮЧЕНА"  to Color(0xFF00E676)
                 state == false -> "● ВЫКЛЮЧЕНА" to Color(0xFFFF5252)
-                else -> "● НЕИЗВЕСТНО" to Color(0xFF90A4AE)
+                else         -> "● НЕИЗВЕСТНО" to Color(0xFF90A4AE)
             }
-            Box(Modifier.clip(RoundedCornerShape(50)).background(stColor.copy(0.15f)).padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Box(
+                Modifier.clip(RoundedCornerShape(50))
+                    .background(stColor.copy(0.15f))
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
                 Text(stText, color = stColor, fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
 
-            // Кнопка
             if (loading) {
                 CircularProgressIndicator(color = Color(0xFF00E676), modifier = Modifier.size(80.dp))
             } else {
@@ -126,9 +159,12 @@ fun GuestScreen() {
                         scope.launch {
                             loading = true; error = ""
                             try {
-                                auth(); setEnabled(!(state ?: false))
-                                delay(1000); state = getStatus()
-                            } catch (e: Exception) { error = e.message ?: "Ошибка" }
+                                setEnabled(!(state ?: false))
+                                delay(1200)
+                                state = getStatus()
+                            } catch (e: Exception) {
+                                error = e.message ?: "Ошибка"
+                            }
                             loading = false
                         }
                     },
@@ -139,21 +175,35 @@ fun GuestScreen() {
                     )
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(if (state == true) "ВЫКЛ" else "ВКЛ", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                        Text(if (state == true) "нажмите\nчтобы выключить" else "нажмите\nчтобы включить", fontSize = 10.sp, color = Color.White.copy(0.8f), textAlign = TextAlign.Center)
+                        Text(
+                            if (state == true) "ВЫКЛ" else "ВКЛ",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            if (state == true) "нажмите\nчтобы выключить" else "нажмите\nчтобы включить",
+                            fontSize = 10.sp,
+                            color = Color.White.copy(0.8f),
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }
 
-            if (error.isNotEmpty()) Text(error, color = Color(0xFFFF5252), textAlign = TextAlign.Center, fontSize = 13.sp)
+            if (error.isNotEmpty()) {
+                Text(error, color = Color(0xFFFF5252), textAlign = TextAlign.Center, fontSize = 13.sp)
+            }
 
             TextButton(onClick = {
                 scope.launch {
                     loading = true; error = ""
-                    try { auth(); state = getStatus() } catch (e: Exception) { error = e.message ?: "Ошибка" }
+                    try { state = getStatus() } catch (e: Exception) { error = e.message ?: "Ошибка" }
                     loading = false
                 }
-            }) { Text("Обновить статус", color = Color.White.copy(0.4f)) }
+            }) {
+                Text("Обновить статус", color = Color.White.copy(0.4f))
+            }
         }
     }
 }
