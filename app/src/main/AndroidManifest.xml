@@ -6,7 +6,7 @@
     <application
         android:allowBackup="true"
         android:label="Гостевая сеть"
-        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
         android:usesCleartextTraffic="true">
 
         <activity
